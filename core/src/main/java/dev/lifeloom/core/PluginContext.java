@@ -4,7 +4,7 @@ package dev.lifeloom.core;
  * 核心提供给插件的上下文。
  *
  * <p>M2 起提供：机制注册、机制状态访问、钩子调用（经权限闸门）、闸门注册与用户询问
- * （后两者仅系统插件可用）。
+ * （后两者仅系统插件可用）；M3 起提供：事件发射 / 订阅与机制状态变更聆听。
  */
 public interface PluginContext {
 
@@ -28,12 +28,33 @@ public interface PluginContext {
     MechanismState stateFor(String mechanismId);
 
     /**
+     * 监听某机制的状态变更（写入与删除时通知；同值重复写入不通知）。
+     *
+     * <p>他方机制需经权限闸门放行；监听随当前插件卸载 / 替换自动解除。
+     */
+    void watchState(String mechanismId, StateChangeListener listener);
+
+    /**
      * 调用指定钩子。
      *
      * <p>调用其他插件的钩子时，非系统插件需经权限闸门放行，未放行时抛出异常；
      * 调用自己插件的钩子直接执行。
      */
     void invokeHook(String hookId) throws Exception;
+
+    /**
+     * 发射事件（运行期使用；同步分发给全部订阅者）。
+     *
+     * <p>发射经执行闸门：插件替换（drain）期间的新发射会被拒绝。
+     */
+    void emit(String eventId, String payload);
+
+    /**
+     * 订阅事件（建议在装载期订阅）。
+     *
+     * <p>订阅绑定当前插件；卸载 / 替换时自动解除。
+     */
+    void subscribe(String eventId, EventBus.Listener listener);
 
     /**
      * 注册一个闸门（仅系统插件可用）。

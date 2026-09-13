@@ -13,12 +13,12 @@ import java.util.stream.Stream;
 /**
  * Lifeloom 核心（极薄宿主）。
  *
- * <p>当前职责：装载 / 卸载 / 热替换插件、维护注册表与机制状态、按钩子 ID 调用钩子；
- * 以及 M2 的极薄权限原语：非系统插件的跨边界操作请求经 {@link PermissionBroker}
- * 转发给已注册闸门（放行决策与用户提示由闸门实现承担，如权限插件），
- * 并提供由外壳注入的用户提示通道（{@link UserPrompt}）。调度与参数存储（M3）随里程碑加入。
+ * <p>当前职责：装载 / 卸载 / 热替换插件、维护注册表与参数存储、按钩子 ID 调用钩子；
+ * M2 权限原语（闸门转发器与用户提示通道）；M3 调度与存储原语：
+ * 事件总线（发射 / 订阅，订阅随插件卸载解除）与参数存储（按命名空间存取、变更通知）。
+ * 单逻辑线程模型与外壳完善随后继续。
  *
- * <p>执行闸门：所有钩子调用经 {@code enterExecution / exitExecution} 计数；
+ * <p>执行闸门：所有钩子调用与事件发射经 {@code enterExecution / exitExecution} 计数；
  * 替换与卸载通过 {@code withDrain} 执行：停止接受新的执行请求，等待执行中的调用结束，
  * 完成任务后恢复（见 ADR-0002）。
  */
@@ -26,9 +26,10 @@ public final class Core {
 
     private final PluginLoader loader;
     private final Registry registry = new Registry();
-    private final MechanismStateStore states = new MechanismStateStore();
+    private final ParamStore params = new ParamStore();
     private final SwapManager swapManager = new SwapManager(this);
     private final PermissionBroker permissions = new PermissionBroker();
+    private final EventBus events = new EventBus();
     private volatile UserPrompt userPrompt = UserPrompt.DENY_ALL;
 
     // --- 执行闸门（drain 支持） ---
@@ -50,6 +51,11 @@ public final class Core {
         return permissions;
     }
 
+    /** 事件总线（诊断 / 外壳用；插件侧请走 PluginContext）。 */
+    public EventBus events() {
+        return events;
+    }
+
     /** 用户提示通道（由外壳注入；缺省为全部拒绝）。 */
     public UserPrompt userPrompt() {
         return userPrompt;
@@ -60,14 +66,14 @@ public final class Core {
         this.userPrompt = Objects.requireNonNull(userPrompt, "userPrompt");
     }
 
-    /** 机制状态存储（包内协作；插件侧请走 PluginContext 或 HookContext）。 */
-    MechanismStateStore states() {
-        return states;
+    /** 参数存储（包内协作；插件侧请走 PluginContext 或 HookContext）。 */
+    ParamStore params() {
+        return params;
     }
 
     /** 某机制的状态视图（诊断 / 工具用；插件侧请走 PluginContext 或 HookContext）。 */
     public MechanismState stateOf(String mechanismId) {
-        return states.stateFor(mechanismId);
+        return params.mechanismState(mechanismId);
     }
 
     // --- 装载 / 卸载 ---
@@ -110,7 +116,7 @@ public final class Core {
     }
 
     /**
-     * 卸载插件（走 drain 闸门）：onUnload → 清理注册内容 → 移除其闸门 → 释放类加载器。
+     * 卸载插件（走 drain 闸门）：onUnload → 清理注册内容、闸门、事件订阅与状态监听 → 释放类加载器。
      * 机制状态保留（数据不断档）。
      *
      * @return 是否找到并卸载了该插件
@@ -152,6 +158,16 @@ public final class Core {
         }
     }
 
+    /** 发射事件（核心 / 外壳侧发起；经执行闸门；替换进行中会拒绝）。 */
+    public void emitEvent(LoadedPlugin emitter, String eventId, String payload) {
+        enterExecution("event:" + eventId);
+        try {
+            events.emit(emitter, eventId, payload);
+        } finally {
+            exitExecution();
+        }
+    }
+
     /**
      * 插件经 {@link PluginContext} 调用钩子（包内协作）。
      *
@@ -178,7 +194,7 @@ public final class Core {
     }
 
     private void invokeResolved(Registry.HookRef ref) throws Exception {
-        MechanismState state = states.stateFor(ref.mechanism().id());
+        MechanismState state = params.mechanismState(ref.mechanism().id());
         ref.hook().invoke(new HookContext(ref.hook().id(), ref.mechanism().id(), state));
     }
 
@@ -210,6 +226,8 @@ public final class Core {
         } catch (Exception e) {
             registry.removePlugin(plugin.descriptor().id());
             permissions.removeGatekeepersOf(plugin);
+            events.removeSubscriptionsOf(plugin);
+            params.removeWatchersOf(plugin);
             safeUnload(plugin);
             plugin.setState(LoadedPlugin.State.FAILED);
             throw new LifeloomException("插件 onLoad 失败: " + plugin.descriptor().id(), e);
@@ -217,7 +235,7 @@ public final class Core {
         plugin.setState(LoadedPlugin.State.ACTIVE);
     }
 
-    /** onUnload + 清理注册 + 移除闸门 + 释放类加载器；机制状态保留。 */
+    /** onUnload + 清理注册内容、闸门、订阅与监听 + 释放类加载器；机制状态保留。 */
     boolean detachPlugin(String pluginId) {
         LoadedPlugin plugin = registry.findPlugin(pluginId);
         if (plugin == null) {
@@ -230,6 +248,8 @@ public final class Core {
         }
         registry.removePlugin(pluginId);
         permissions.removeGatekeepersOf(plugin);
+        events.removeSubscriptionsOf(plugin);
+        params.removeWatchersOf(plugin);
         safeUnload(plugin);
         plugin.setState(LoadedPlugin.State.UNLOADED);
         return true;
@@ -254,10 +274,10 @@ public final class Core {
         }
     }
 
-    private void enterExecution(String hookId) {
+    private void enterExecution(String requestId) {
         synchronized (gate) {
             if (swapping) {
-                throw new LifeloomException("插件替换进行中，暂不接受新的执行请求: " + hookId);
+                throw new LifeloomException("插件替换进行中，暂不接受新的执行请求: " + requestId);
             }
             activeExecutions++;
             executionDepth.set(executionDepth.get() + 1);
