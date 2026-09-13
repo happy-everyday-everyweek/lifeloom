@@ -1,0 +1,7 @@
+.operit/
+.backup/
+.gradle/
+build/
+out/
+*.class
+*.log
