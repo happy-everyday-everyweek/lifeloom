@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-核心 M0 运行骨架已跑通。桌面端可完整演示“装载插件 → 注册机制 → 调用钩子 → 卸载”流程；Android 外壳骨架已能构建 APK 并随包携带核心库。热替换（M1）、权限（M2）、调度与参数存储（M3）在后续里程碑中加入。
+核心 M1 热替换已跑通：桌面端可演示“装载 → 调用 → 整体替换（升级）→ 数据不断档 → 卸载”全流程，并有单元测试覆盖；Android 外壳骨架已能构建 APK 并随包携带核心库。权限（M2）、调度与参数存储（M3）在后续里程碑中加入。
 
 ## 构建与运行
 
@@ -18,13 +18,14 @@
 
 Android APK 产物位于 `shell-android/build/outputs/apk/debug/`。
 
-桌面端演示（装载示例插件并调用钩子）：
+桌面端演示（装载 → 调用 → 热替换升级 → 再调用）：
 
 ```bash
-./gradlew :examples:demo-plugin:jar
-mkdir -p run/plugins
+./gradlew :examples:demo-plugin:jar :examples:demo-plugin-v2:jar
+mkdir -p run/plugins run/updates
 cp examples/demo-plugin/build/libs/*.jar run/plugins/
-./gradlew :shell-desktop:run --args="--plugins $PWD/run/plugins --invoke dev.lifeloom.demo.greeting.hello"
+cp examples/demo-plugin-v2/build/libs/*.jar run/updates/
+./gradlew :shell-desktop:run --args="--plugins $PWD/run/plugins --invoke dev.lifeloom.demo.greeting.hello --replace dev.lifeloom.demo=$PWD/run/updates/demo-plugin-v2-0.1.0-SNAPSHOT.jar --invoke dev.lifeloom.demo.greeting.hello"
 ```
 
 ## 文档入口
