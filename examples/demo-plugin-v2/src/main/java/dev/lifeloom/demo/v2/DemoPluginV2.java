@@ -1,4 +1,4 @@
-package dev.lifeloom.demo;
+package dev.lifeloom.demo.v2;
 
 import dev.lifeloom.core.Hook;
 import dev.lifeloom.core.HookContext;
@@ -10,12 +10,11 @@ import dev.lifeloom.core.PluginContext;
 import java.util.List;
 
 /**
- * 示例插件 v1（0.1.0）：注册“问候”机制，包含一个 hello 钩子。
+ * 示例插件 v2（0.2.0）：与 v1 同插件 ID（dev.lifeloom.demo）的升级包。
  *
- * <p>用于演示：装载 → 调用 → 热替换（升级到 v2）→ 数据不断档。
- * hello 钩子每次调用把机制状态里的计数加一并输出；装载时累加“装载次数”。
+ * <p>演示热替换：替换后机制状态（计数）从 v1 继承，不断档。
  */
-public final class DemoPlugin implements Plugin {
+public final class DemoPluginV2 implements Plugin {
 
     private static final String MECHANISM_ID = "dev.lifeloom.demo.greeting";
     private static final String HOOK_HELLO = MECHANISM_ID + ".hello";
@@ -25,7 +24,7 @@ public final class DemoPlugin implements Plugin {
         MechanismState state = context.stateFor(MECHANISM_ID);
         int loads = parseInt(state.get("loads")) + 1;
         state.put("loads", String.valueOf(loads));
-        System.out.println("[demo-plugin v1] 已装载（该机制累计装载 " + loads + " 次）");
+        System.out.println("[demo-plugin v2] 已装载（该机制累计装载 " + loads + " 次，继承自旧版本）");
 
         Hook hello = new Hook() {
             @Override
@@ -38,8 +37,8 @@ public final class DemoPlugin implements Plugin {
                 MechanismState s = hookContext.state();
                 int count = parseInt(s.get("count")) + 1;
                 s.put("count", String.valueOf(count));
-                System.out.println("[demo-plugin v1] hello #" + count
-                        + "（机制 " + hookContext.mechanismId() + "）");
+                System.out.println("[demo-plugin v2] hello #" + count
+                        + "（数据由旧版本继承；机制 " + hookContext.mechanismId() + "）");
             }
         };
         context.registerMechanism(new Mechanism(MECHANISM_ID, "问候", List.of(hello)));
@@ -47,7 +46,7 @@ public final class DemoPlugin implements Plugin {
 
     @Override
     public void onUnload() {
-        System.out.println("[demo-plugin v1] 已卸载。");
+        System.out.println("[demo-plugin v2] 已卸载。");
     }
 
     private static int parseInt(String value) {

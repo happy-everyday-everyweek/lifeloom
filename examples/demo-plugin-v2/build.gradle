@@ -1,0 +1,13 @@
+plugins {
+    id 'java'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
+
+dependencies {
+    // 插件只依赖核心的 SPI；运行时由宿主（core）提供。
+    compileOnly project(':core')
+}
