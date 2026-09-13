@@ -34,7 +34,7 @@ public final class JvmPluginLoader implements PluginLoader {
                         "主类未实现 Plugin 接口: " + descriptor.mainClass());
             }
             Plugin instance = (Plugin) mainClass.getDeclaredConstructor().newInstance();
-            return new LoadedPlugin(descriptor, classLoader, instance);
+            return new LoadedPlugin(descriptor, classLoader, instance, pluginFile);
         } catch (Exception e) {
             classLoader.close();
             if (e instanceof LifeloomException) {

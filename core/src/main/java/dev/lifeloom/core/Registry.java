@@ -113,6 +113,11 @@ public final class Registry {
         return mechanisms.get(mechanismId);
     }
 
+    /** 机制归属插件；未注册时返回 null。 */
+    public LoadedPlugin ownerOf(String mechanismId) {
+        return mechanismOwners.get(mechanismId);
+    }
+
     public HookRef findHook(String hookId) {
         return hooks.get(hookId);
     }

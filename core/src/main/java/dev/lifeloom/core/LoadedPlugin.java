@@ -1,9 +1,10 @@
 package dev.lifeloom.core;
 
+import java.nio.file.Path;
 import java.util.Objects;
 
 /**
- * 已装载插件的运行时句柄：清单 + 类加载器 + 插件实例 + 状态。
+ * 已装载插件的运行时句柄：清单 + 类加载器 + 插件实例 + 来源 + 状态。
  *
  * <p>由 {@link PluginLoader} 实现创建，核心编排其生命周期。
  * 类加载器的关闭由装载器实现负责（{@link PluginLoader#unload(LoadedPlugin)}）。
@@ -25,12 +26,15 @@ public final class LoadedPlugin {
     private final PluginDescriptor descriptor;
     private final ClassLoader classLoader;
     private final Plugin instance;
+    private final Path sourcePath;
     private State state = State.LOADING;
 
-    public LoadedPlugin(PluginDescriptor descriptor, ClassLoader classLoader, Plugin instance) {
+    public LoadedPlugin(PluginDescriptor descriptor, ClassLoader classLoader,
+                        Plugin instance, Path sourcePath) {
         this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
         this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
         this.instance = Objects.requireNonNull(instance, "instance");
+        this.sourcePath = Objects.requireNonNull(sourcePath, "sourcePath");
     }
 
     public PluginDescriptor descriptor() {
@@ -43,6 +47,11 @@ public final class LoadedPlugin {
 
     public Plugin instance() {
         return instance;
+    }
+
+    /** 插件包来源路径（替换与回滚时使用）。 */
+    public Path sourcePath() {
+        return sourcePath;
     }
 
     public State state() {
