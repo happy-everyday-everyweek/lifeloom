@@ -1,6 +1,9 @@
 package dev.lifeloom.core;
 
-/** 默认插件上下文：把注册、状态、闸门、解析器、事件与提示请求转交核心，并绑定到当前插件。 */
+import java.nio.file.Path;
+import java.util.List;
+
+/** 默认插件上下文：把注册、状态、闸门、解析器、事件、装载控制与提示请求转交核心，并绑定到当前插件。 */
 final class DefaultPluginContext implements PluginContext {
 
     private final LoadedPlugin plugin;
@@ -85,5 +88,30 @@ final class DefaultPluginContext implements PluginContext {
             throw new LifeloomException("仅系统插件可请求用户提示: " + plugin.descriptor().id());
         }
         return core.userPrompt().confirm(message);
+    }
+
+    @Override
+    public List<Mechanism> mechanisms() {
+        return core.mechanismsFor(plugin);
+    }
+
+    @Override
+    public List<PluginDescriptor> plugins() {
+        return core.pluginsFor(plugin);
+    }
+
+    @Override
+    public void loadPlugin(Path pluginFile) throws Exception {
+        core.loadPluginFrom(plugin, pluginFile);
+    }
+
+    @Override
+    public void unloadPlugin(String pluginId) {
+        core.unloadPluginFrom(plugin, pluginId);
+    }
+
+    @Override
+    public void replacePlugin(String pluginId, Path newPluginFile) throws Exception {
+        core.replacePluginFrom(plugin, pluginId, newPluginFile);
     }
 }

@@ -1,11 +1,16 @@
 package dev.lifeloom.core;
 
+import java.nio.file.Path;
+import java.util.List;
+
 /**
  * 核心提供给插件的上下文。
  *
  * <p>M2 起提供：机制注册、机制状态访问、钩子调用（经权限闸门）、闸门注册与用户询问
  * （后两者仅系统插件可用）；M3 起提供：事件发射 / 订阅、机制状态变更聆听与
- * 钩子解析器注册（仅系统插件可用）；M3 收尾起：钩子调用带输入输出。
+ * 钩子解析器注册（仅系统插件可用）；M3 收尾起：钩子调用带输入输出；
+ * 本轮起：系统插件协作原语——机制 / 插件清单查看与装载控制（仅系统插件可用，
+ * 钩子执行中请求时延迟到本次调用结束后执行）。
  */
 public interface PluginContext {
 
@@ -84,4 +89,32 @@ public interface PluginContext {
      * 向用户展示提示并询问是/否（仅系统插件可用；经外壳的提示通道）。
      */
     boolean askUser(String message);
+
+    /**
+     * 全部已注册机制的清单快照（注册顺序；仅系统插件可用——供插件管理 / 调试工具）。
+     */
+    List<Mechanism> mechanisms();
+
+    /**
+     * 全部已装载插件的清单快照（装载顺序；仅系统插件可用）。
+     */
+    List<PluginDescriptor> plugins();
+
+    /**
+     * 装载新插件（仅系统插件可用）。
+     *
+     * <p>在钩子执行中调用时，操作延迟到本次调用结束后执行（随后生效，失败只记录）；
+     * 直接调用（非执行中）立即执行，失败抛异常。
+     */
+    void loadPlugin(Path pluginFile) throws Exception;
+
+    /**
+     * 卸载插件（drain；仅系统插件可用）。延迟语义同 {@link #loadPlugin(Path)}。
+     */
+    void unloadPlugin(String pluginId);
+
+    /**
+     * 整体替换（热替换）插件（drain；仅系统插件可用）。延迟语义同 {@link #loadPlugin(Path)}。
+     */
+    void replacePlugin(String pluginId, Path newPluginFile) throws Exception;
 }

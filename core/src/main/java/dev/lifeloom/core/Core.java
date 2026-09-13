@@ -3,7 +3,9 @@ package dev.lifeloom.core;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -16,7 +18,9 @@ import java.util.stream.Stream;
  * <p>当前职责：装载 / 卸载 / 热替换插件、维护注册表与参数存储、按钩子 ID 调用钩子；
  * M2 权限原语（闸门转发器与用户提示通道）；M3 调度与存储原语：单逻辑线程模型、
  * 事件总线（发射 / 订阅）与参数存储（按命名空间存取、变更通知）；插件间调用协议：
- * 钩子调用带输入输出、钩子解析器（禁用 / 替代登记的衔接点，见 ADR-0006）。
+ * 钩子调用带输入输出、钩子解析器（禁用 / 替代登记的衔接点，见 ADR-0006）；
+ * 系统插件协作原语：机制 / 插件清单查看与装载控制（仅系统插件可用；钩子执行中
+ * 请求时延迟到本次调用结束后执行）。
  *
  * <p>单逻辑线程：钩子调用、事件分发与插件生命周期操作都由 {@link LogicThread} 串行执行。
  * 执行闸门：派发先经 {@code enterGate} 计数；替换与卸载通过 {@code withDrain} 执行
@@ -34,6 +38,7 @@ public final class Core {
     private final EventBus events = new EventBus();
     private final LogicThread logic = new LogicThread("lifeloom-logic");
     private volatile UserPrompt userPrompt = UserPrompt.DENY_ALL;
+    private final Deque<Runnable> deferredOps = new ArrayDeque<>();
 
     // --- 执行闸门（drain 支持） ---
     private final Object gate = new Object();
@@ -280,6 +285,106 @@ public final class Core {
         return ids;
     }
 
+    // --- 系统插件协作原语（清单查看与装载控制；仅系统插件可用） ---
+
+    /** 全部已注册机制快照（注册顺序；仅系统插件可用）。 */
+    List<Mechanism> mechanismsFor(LoadedPlugin requester) {
+        requireSystem(requester, "查看机制清单");
+        return new ArrayList<>(registry.mechanisms());
+    }
+
+    /** 全部已装载插件清单快照（装载顺序；仅系统插件可用）。 */
+    List<PluginDescriptor> pluginsFor(LoadedPlugin requester) {
+        requireSystem(requester, "查看插件清单");
+        List<PluginDescriptor> descriptors = new ArrayList<>();
+        for (LoadedPlugin plugin : registry.plugins()) {
+            descriptors.add(plugin.descriptor());
+        }
+        return descriptors;
+    }
+
+    /**
+     * 装载插件（仅系统插件可用；在钩子执行中调用时，延迟到本次调用结束后执行）。
+     * 延迟执行失败只记录到标准错误。
+     */
+    void loadPluginFrom(LoadedPlugin requester, Path pluginFile) throws Exception {
+        requireSystem(requester, "装载插件");
+        if (logic.isOnLogicThread()) {
+            deferControl(() -> {
+                try {
+                    loadPlugin(pluginFile);
+                } catch (Exception e) {
+                    throw new LifeloomException("延迟装载失败: " + pluginFile, e);
+                }
+            });
+            return;
+        }
+        loadPlugin(pluginFile);
+    }
+
+    /** 卸载插件（仅系统插件可用；延迟语义同 {@link #loadPluginFrom}）。 */
+    void unloadPluginFrom(LoadedPlugin requester, String pluginId) {
+        requireSystem(requester, "卸载插件");
+        if (logic.isOnLogicThread()) {
+            deferControl(() -> {
+                if (!unloadPlugin(pluginId)) {
+                    throw new LifeloomException("延迟卸载未找到插件: " + pluginId);
+                }
+            });
+            return;
+        }
+        unloadPlugin(pluginId);
+    }
+
+    /** 整体替换插件（仅系统插件可用；延迟语义同 {@link #loadPluginFrom}）。 */
+    void replacePluginFrom(LoadedPlugin requester, String pluginId, Path newPluginFile) throws Exception {
+        requireSystem(requester, "替换插件");
+        if (logic.isOnLogicThread()) {
+            deferControl(() -> {
+                try {
+                    replacePlugin(pluginId, newPluginFile);
+                } catch (Exception e) {
+                    throw new LifeloomException("延迟替换失败: " + pluginId, e);
+                }
+            });
+            return;
+        }
+        replacePlugin(pluginId, newPluginFile);
+    }
+
+    private static void requireSystem(LoadedPlugin requester, String operation) {
+        if (requester.origin() != PluginOrigin.SYSTEM) {
+            throw new LifeloomException("仅系统插件可用（" + operation + "）: "
+                    + requester.descriptor().id());
+        }
+    }
+
+    // --- 延迟控制操作（钩子执行中请求的装载控制；于非逻辑线程的派发收尾处执行） ---
+
+    private void deferControl(Runnable op) {
+        synchronized (deferredOps) {
+            deferredOps.addLast(op);
+        }
+    }
+
+    /** 执行排队的延迟控制操作（FIFO）。失败只记录，不影响调用方（调用方已收到“已受理”）。 */
+    private void runDeferredOps() {
+        while (true) {
+            Runnable op;
+            synchronized (deferredOps) {
+                op = deferredOps.pollFirst();
+            }
+            if (op == null) {
+                return;
+            }
+            try {
+                op.run();
+            } catch (LifeloomException e) {
+                System.err.println("[core] 延迟控制操作失败: " + e.getMessage());
+            }
+        }
+    }
+
     // --- 包内协作（SwapManager 使用） ---
 
     PluginLoader loader() {
@@ -345,6 +450,7 @@ public final class Core {
     /**
      * 在逻辑线程上执行一次派发：先在调用线程进入执行闸门（drain 计数含排队中的派发），
      * 再提交逻辑线程；执行期间在逻辑线程上记深度（执行中禁止发起替换 / 卸载）。
+     * 派发收尾（非逻辑线程）处执行排队的延迟控制操作。
      */
     private <T> T dispatch(Callable<T> task, String requestId) throws Exception {
         enterGate(requestId);
@@ -360,6 +466,9 @@ public final class Core {
             });
         } finally {
             exitGate();
+            if (!logic.isOnLogicThread()) {
+                runDeferredOps();
+            }
         }
     }
 

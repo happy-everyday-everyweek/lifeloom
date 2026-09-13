@@ -115,6 +115,31 @@ final class FakeContext implements PluginContext {
         return false;
     }
 
+    @Override
+    public List<Mechanism> mechanisms() {
+        throw new UnsupportedOperationException("测试夹具未实现该原语: mechanisms");
+    }
+
+    @Override
+    public List<dev.lifeloom.core.PluginDescriptor> plugins() {
+        throw new UnsupportedOperationException("测试夹具未实现该原语: plugins");
+    }
+
+    @Override
+    public void loadPlugin(java.nio.file.Path pluginFile) {
+        throw new UnsupportedOperationException("测试夹具未实现该原语: loadPlugin");
+    }
+
+    @Override
+    public void unloadPlugin(String pluginId) {
+        throw new UnsupportedOperationException("测试夹具未实现该原语: unloadPlugin");
+    }
+
+    @Override
+    public void replacePlugin(String pluginId, java.nio.file.Path newPluginFile) {
+        throw new UnsupportedOperationException("测试夹具未实现该原语: replacePlugin");
+    }
+
     /** 内存键值状态。 */
     private static final class MapState implements MechanismState {
 
