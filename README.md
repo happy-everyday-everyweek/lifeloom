@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-核心 M2 权限已完成（权限为独立系统插件）：非系统插件的跨边界操作（访问他方机制状态、调用他方钩子）经核心极薄闸门转发给权限插件；权限插件负责放行决策与用户提示；未装权限插件时一律拒绝（fail-closed）。M3（调度与存储原语）持续落地：事件总线、参数存储、单逻辑线程模型、钩子调用输入输出与钩子解析器、外壳完善（44 个单元测试覆盖）；桌面端可演示全流程；Android 外壳骨架可构建 APK 并随包携带核心库。底层系统插件层整体设计已定稿（草案 v0.3，14 个成员，见 [docs/底层插件设计.md](docs/底层插件设计.md)）；接下来逐个开发系统插件（从运转组开始：钩子管理、动作、时间）。
+核心 M2 权限已完成（权限为独立系统插件）：非系统插件的跨边界操作（访问他方机制状态、调用他方钩子）经核心极薄闸门转发给权限插件；权限插件负责放行决策与用户提示；未装权限插件时一律拒绝（fail-closed）。M3（调度与存储原语）持续落地：事件总线、参数存储、单逻辑线程模型、钩子调用输入输出与钩子解析器、外壳完善（核心单元测试 47 个覆盖）；桌面端可演示全流程；Android 外壳骨架可构建 APK 并随包携带核心库。底层系统插件层整体设计已定稿（草案 v0.3，14 个成员，见 [docs/底层插件设计.md](docs/底层插件设计.md)）；运转组系统插件 v1 已落地（时间 / 钩子管理 / 动作，含单元测试与桌面演示，见下方“演示三”），其余成员随细谈逐组推进。
 
 ## 构建与运行
 
@@ -16,7 +16,8 @@
 ./gradlew :core:test :shell-desktop:installDist \
   :examples:demo-plugin:jar :examples:demo-plugin-v2:jar \
   :examples:neighbor-plugin:jar :system-plugins:permissions-plugin:jar \
-  :shell-android:assembleDebug
+  :system-plugins:time-plugin:jar :system-plugins:hooks-plugin:jar \
+  :system-plugins:action-plugin:jar :shell-android:assembleDebug
 ```
 
 Android APK 产物位于 `shell-android/build/outputs/apk/debug/`。
@@ -57,6 +58,34 @@ printf 'y\nn\n' | shell-desktop/build/install/shell-desktop/bin/shell-desktop \
   --plugins "$PWD/run/m2-with" \
   --invoke dev.lifeloom.neighbor.check \
   --invoke dev.lifeloom.permissions.status
+```
+
+### 演示三：运转组插件（时间 / 动作 / 钩子管理）
+
+```bash
+# 构建外壳与四个插件
+./gradlew :shell-desktop:installDist :examples:demo-plugin:jar \
+  :system-plugins:time-plugin:jar :system-plugins:hooks-plugin:jar :system-plugins:action-plugin:jar
+
+mkdir -p run/plugins-v1
+cp system-plugins/time-plugin/build/libs/*.jar run/plugins-v1/0-time.jar
+cp system-plugins/hooks-plugin/build/libs/*.jar run/plugins-v1/1-hooks.jar
+cp system-plugins/action-plugin/build/libs/*.jar run/plugins-v1/2-actions.jar
+cp examples/demo-plugin/build/libs/*.jar run/plugins-v1/9-demo.jar
+
+# 注册“hello”动作（15 分钟）→ 执行（逻辑 + 时钟推进）→ 禁用跳过 → 恢复 → 替代到新钩子
+shell-desktop/build/install/shell-desktop/bin/shell-desktop \
+  --plugins "$PWD/run/plugins-v1" \
+  --invoke dev.lifeloom.time.now \
+  --invoke 'dev.lifeloom.actions.register=id=dev.lifeloom.demo.greeting.hello;minutes=15' \
+  --invoke dev.lifeloom.actions.execute=dev.lifeloom.demo.greeting.hello \
+  --invoke dev.lifeloom.time.now \
+  --invoke dev.lifeloom.hooks.disable=dev.lifeloom.demo.greeting.hello \
+  --invoke dev.lifeloom.demo.greeting.hello \
+  --invoke dev.lifeloom.hooks.enable=dev.lifeloom.demo.greeting.hello \
+  --invoke dev.lifeloom.hooks.replace=dev.lifeloom.demo.greeting.hello=dev.lifeloom.time.now \
+  --invoke dev.lifeloom.demo.greeting.hello \
+  --invoke dev.lifeloom.hooks.status
 ```
 
 ## 文档入口
