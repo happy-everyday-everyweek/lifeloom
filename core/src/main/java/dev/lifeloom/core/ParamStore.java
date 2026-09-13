@@ -16,7 +16,8 @@ import java.util.Set;
  * {@code mechanism:<机制ID>}：独立于插件注册生命周期，卸载 / 替换不清除，
  * 新版本可续读写（数据不断档）。其他命名空间（如实例参数）随成员插件接入。
  *
- * <p>变更监听绑定到插件，卸载 / 替换时自动解除；通知在写入线程上同步发出，
+ * <p>变更监听默认绑定到插件，卸载 / 替换时自动解除（另有不绑定插件的原始监听，
+ * 诊断 / 外壳用，见 {@link #watchRaw}）；通知在写入线程上同步发出，
  * 监听者抛错只记录、不影响写入方与其余监听者。
  */
 public final class ParamStore {
@@ -29,6 +30,7 @@ public final class ParamStore {
 
     private static final class Subscription {
 
+        /** 监听所属插件；原始监听（诊断 / 外壳用）时为 null。 */
         final LoadedPlugin owner;
         final ChangeListener listener;
 
@@ -41,7 +43,7 @@ public final class ParamStore {
     private final Map<String, Map<String, String>> spaces = new LinkedHashMap<>();
     private final Map<String, List<Subscription>> watchers = new LinkedHashMap<>();
 
-    private static String mechanismNamespace(String mechanismId) {
+    static String mechanismNamespace(String mechanismId) {
         return "mechanism:" + Objects.requireNonNull(mechanismId, "mechanismId");
     }
 
@@ -63,6 +65,31 @@ public final class ParamStore {
         }
         watchers.computeIfAbsent(mechanismNamespace(mechanismId), key -> new ArrayList<>())
                 .add(new Subscription(owner, listener));
+    }
+
+    /**
+     * 注册一个不绑定插件的监听（诊断 / 外壳用；需自行取消）。
+     *
+     * @return 取消句柄；close 后不再收到通知
+     */
+    synchronized AutoCloseable watchRaw(String namespaceId, ChangeListener listener) {
+        if (listener == null) {
+            throw new LifeloomException("变更监听不能为空");
+        }
+        List<Subscription> list = watchers.computeIfAbsent(namespaceId, key -> new ArrayList<>());
+        Subscription subscription = new Subscription(null, listener);
+        list.add(subscription);
+        return () -> {
+            synchronized (ParamStore.this) {
+                List<Subscription> current = watchers.get(namespaceId);
+                if (current != null) {
+                    current.remove(subscription);
+                    if (current.isEmpty()) {
+                        watchers.remove(namespaceId);
+                    }
+                }
+            }
+        };
     }
 
     /** 移除某插件的全部监听（卸载 / 装载失败时调用）。 */

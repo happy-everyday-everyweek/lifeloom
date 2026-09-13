@@ -4,7 +4,8 @@ package dev.lifeloom.core;
  * 核心提供给插件的上下文。
  *
  * <p>M2 起提供：机制注册、机制状态访问、钩子调用（经权限闸门）、闸门注册与用户询问
- * （后两者仅系统插件可用）；M3 起提供：事件发射 / 订阅与机制状态变更聆听。
+ * （后两者仅系统插件可用）；M3 起提供：事件发射 / 订阅、机制状态变更聆听与
+ * 钩子解析器注册（仅系统插件可用）；M3 收尾起：钩子调用带输入输出。
  */
 public interface PluginContext {
 
@@ -43,6 +44,14 @@ public interface PluginContext {
     void invokeHook(String hookId) throws Exception;
 
     /**
+     * 调用指定钩子（带输入；返回钩子输出，钩子未 reply 时为 null）。
+     *
+     * <p>权限与钩子解析语义同 {@link #invokeHook(String)}；输入 / 输出为字符串，
+     * 格式由调用方与钩子约定。
+     */
+    String invokeHook(String hookId, String input) throws Exception;
+
+    /**
      * 发射事件（运行期使用；同步分发给全部订阅者）。
      *
      * <p>发射经执行闸门：插件替换（drain）期间的新发射会被拒绝。
@@ -62,6 +71,14 @@ public interface PluginContext {
      * <p>闸门用于横切控制（如权限）；非系统插件调用将抛出异常。
      */
     void registerGatekeeper(Gatekeeper gatekeeper);
+
+    /**
+     * 注册一个钩子解析器（仅系统插件可用）。
+     *
+     * <p>解析器在每次钩子调用前解析目标（直接执行 / 跳过 / 重定向），供钩子管理类插件
+     * 实现“禁用与替代登记”；随本插件卸载 / 替换自动移除。非系统插件调用将抛出异常。
+     */
+    void registerHookResolver(HookResolver resolver);
 
     /**
      * 向用户展示提示并询问是/否（仅系统插件可用；经外壳的提示通道）。

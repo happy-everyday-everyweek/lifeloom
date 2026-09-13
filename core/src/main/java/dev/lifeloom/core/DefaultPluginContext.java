@@ -1,6 +1,6 @@
 package dev.lifeloom.core;
 
-/** 默认插件上下文：把注册、状态、闸门、事件与提示请求转交核心，并绑定到当前插件。 */
+/** 默认插件上下文：把注册、状态、闸门、解析器、事件与提示请求转交核心，并绑定到当前插件。 */
 final class DefaultPluginContext implements PluginContext {
 
     private final LoadedPlugin plugin;
@@ -55,6 +55,11 @@ final class DefaultPluginContext implements PluginContext {
     }
 
     @Override
+    public String invokeHook(String hookId, String input) throws Exception {
+        return core.invokeHookFrom(plugin, hookId, input);
+    }
+
+    @Override
     public void emit(String eventId, String payload) {
         core.emitEvent(plugin, eventId, payload);
     }
@@ -67,6 +72,11 @@ final class DefaultPluginContext implements PluginContext {
     @Override
     public void registerGatekeeper(Gatekeeper gatekeeper) {
         core.permissions().registerGatekeeper(plugin, gatekeeper);
+    }
+
+    @Override
+    public void registerHookResolver(HookResolver resolver) {
+        core.hookResolvers().register(plugin, resolver);
     }
 
     @Override
