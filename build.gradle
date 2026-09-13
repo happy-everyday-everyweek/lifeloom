@@ -1,5 +1,9 @@
 // Lifeloom 根构建脚本。
-// 当前为纯 Java 模块（core / shell-desktop / 示例插件）；Android 外壳模块随后加入。
+// 纯 Java 模块（core / shell-desktop / 示例插件）+ Android 外壳模块（shell-android，AGP）。
+
+plugins {
+    id 'com.android.application' version '8.9.0' apply false
+}
 
 allprojects {
     group = 'dev.lifeloom'
