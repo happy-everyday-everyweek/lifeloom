@@ -5,16 +5,21 @@ import dev.lifeloom.core.Hook;
 import dev.lifeloom.core.JvmPluginLoader;
 import dev.lifeloom.core.LoadedPlugin;
 import dev.lifeloom.core.Mechanism;
+import dev.lifeloom.core.PluginOrigin;
 import dev.lifeloom.core.Registry;
 import dev.lifeloom.core.SwapManager;
+import dev.lifeloom.core.UserPrompt;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 桌面外壳（M1 最小版）：命令行演示核心的完整流程。
+ * 桌面外壳（命令行演示）：核心装载 / 调用 / 热替换与 M2 权限闸门的演示入口。
  *
  * <p>用法：
  * <pre>
@@ -24,6 +29,8 @@ import java.util.List;
  * <p>操作按出现顺序执行：{@code --invoke <hookId>} 调用钩子；
  * {@code --replace <pluginId>=<jarFile>} 热替换（升级）插件。
  * 结束后默认卸载全部插件并退出（演示用；机制状态保留）。
+ *
+ * <p>已注入控制台提示通道：权限插件询问时从标准输入读取 y/n（EOF 视为拒绝）。
  */
 public final class Main {
 
@@ -61,8 +68,9 @@ public final class Main {
             }
         }
 
-        System.out.println("=== Lifeloom 核心 M1 演示 ===");
+        System.out.println("=== Lifeloom 桌面外壳（M2：权限闸门） ===");
         Core core = new Core(new JvmPluginLoader());
+        core.setUserPrompt(new ConsolePrompt());
 
         if (pluginsDir != null) {
             System.out.println("插件目录: " + pluginsDir.toAbsolutePath());
@@ -70,9 +78,12 @@ public final class Main {
             System.out.println();
             System.out.println("已装载插件 " + loaded + " 个:");
             for (LoadedPlugin plugin : core.registry().plugins()) {
-                System.out.println("  [" + plugin.descriptor().id() + "] "
-                        + plugin.descriptor().name() + " v" + plugin.descriptor().version());
+                System.out.println("  [" + originLabel(plugin.origin()) + "] "
+                        + plugin.descriptor().id() + " v" + plugin.descriptor().version());
             }
+            System.out.println("权限闸门: " + (core.permissions().hasGatekeeper()
+                    ? "已注册（放行决策由闸门承担）"
+                    : "未注册（三方插件的跨边界操作将被拒绝）"));
         }
 
         System.out.println();
@@ -115,6 +126,10 @@ public final class Main {
         System.out.println("收尾：已注册机制 " + core.registry().mechanisms().size() + " 个（机制状态仍保留）");
     }
 
+    private static String originLabel(PluginOrigin origin) {
+        return origin == PluginOrigin.SYSTEM ? "系统" : "三方";
+    }
+
     private static void printMechanisms(Registry registry) {
         System.out.println("已注册机制 " + registry.mechanisms().size() + " 个:");
         for (Mechanism mechanism : registry.mechanisms()) {
@@ -153,6 +168,35 @@ public final class Main {
 
         static Op replace(String pluginId, Path jarPath) {
             return new Op(Kind.REPLACE, null, pluginId, jarPath);
+        }
+    }
+
+    /** 控制台提示通道：提示输出到标准输出；询问从标准输入读取（y/yes 为同意，EOF 或读取失败视为拒绝）。 */
+    private static final class ConsolePrompt implements UserPrompt {
+
+        private final BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+
+        @Override
+        public void inform(String message) {
+            System.out.println("[提示] " + message);
+        }
+
+        @Override
+        public boolean confirm(String message) {
+            System.out.print("[询问] " + message + " [y/N] ");
+            System.out.flush();
+            try {
+                String line = reader.readLine();
+                if (line == null) {
+                    System.out.println("（无输入，按拒绝处理）");
+                    return false;
+                }
+                String answer = line.trim().toLowerCase();
+                return answer.equals("y") || answer.equals("yes");
+            } catch (IOException e) {
+                System.out.println("（读取失败，按拒绝处理）");
+                return false;
+            }
         }
     }
 }

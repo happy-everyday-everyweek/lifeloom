@@ -15,3 +15,8 @@ application {
     mainClass = 'dev.lifeloom.shell.desktop.Main'
     applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
 }
+
+// gradle run 时把标准输入转发给应用（权限询问需要读取 y/n）。
+tasks.named('run') {
+    standardInput = System.in
+}
