@@ -1,0 +1,9 @@
+plugins {
+    id 'java-library'
+}
+
+// 跨端兼容：核心以 Java 11 语言级别发布（Android 侧可被 D8 正常处理）。
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release.set(11)
+}
