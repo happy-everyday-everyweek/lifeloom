@@ -5,3 +5,5 @@ build/
 out/
 *.class
 *.log
+run/
+local.properties

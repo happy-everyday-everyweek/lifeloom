@@ -1,0 +1,6 @@
+rootProject.name = 'lifeloom'
+
+include 'core'
+include 'shell-desktop'
+include 'examples:demo-plugin'
+// shell-android：Android 外壳模块，随 M0 进展加入（AGP）。
