@@ -3,7 +3,8 @@ package dev.lifeloom.core;
 /**
  * 核心提供给插件的上下文。
  *
- * <p>M1 起提供机制注册与机制状态访问；参数存储、日志、权限等能力随里程碑逐步加入。
+ * <p>M2 起提供：机制注册、机制状态访问、钩子调用（经权限闸门）、闸门注册与用户询问
+ * （后两者仅系统插件可用）。
  */
 public interface PluginContext {
 
@@ -21,8 +22,28 @@ public interface PluginContext {
     /**
      * 获取某机制的状态视图（按机制归属，替换不断档）。
      *
-     * <p>M1 规则：目标机制若已注册，必须属于当前插件；未注册时允许访问
-     * （用于装载期读取旧版本数据做迁移）。跨机制访问的授权流程随权限里程碑加入。
+     * <p>目标机制若已注册且属于其他插件，需经权限闸门放行（非系统插件未放行时抛异常）；
+     * 未注册时允许访问（用于装载期读取旧版本数据做迁移）。
      */
     MechanismState stateFor(String mechanismId);
+
+    /**
+     * 调用指定钩子。
+     *
+     * <p>调用其他插件的钩子时，非系统插件需经权限闸门放行，未放行时抛出异常；
+     * 调用自己插件的钩子直接执行。
+     */
+    void invokeHook(String hookId) throws Exception;
+
+    /**
+     * 注册一个闸门（仅系统插件可用）。
+     *
+     * <p>闸门用于横切控制（如权限）；非系统插件调用将抛出异常。
+     */
+    void registerGatekeeper(Gatekeeper gatekeeper);
+
+    /**
+     * 向用户展示提示并询问是/否（仅系统插件可用；经外壳的提示通道）。
+     */
+    boolean askUser(String message);
 }

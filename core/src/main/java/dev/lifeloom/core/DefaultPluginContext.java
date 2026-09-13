@@ -1,16 +1,14 @@
 package dev.lifeloom.core;
 
-/** 默认插件上下文：把注册与状态访问请求转交给核心，并绑定到当前插件。 */
+/** 默认插件上下文：把注册、状态、闸门与提示请求转交核心，并绑定到当前插件。 */
 final class DefaultPluginContext implements PluginContext {
 
     private final LoadedPlugin plugin;
-    private final Registry registry;
-    private final MechanismStateStore states;
+    private final Core core;
 
-    DefaultPluginContext(LoadedPlugin plugin, Registry registry, MechanismStateStore states) {
+    DefaultPluginContext(LoadedPlugin plugin, Core core) {
         this.plugin = plugin;
-        this.registry = registry;
-        this.states = states;
+        this.core = core;
     }
 
     @Override
@@ -20,15 +18,38 @@ final class DefaultPluginContext implements PluginContext {
 
     @Override
     public void registerMechanism(Mechanism mechanism) {
-        registry.registerMechanism(plugin, mechanism);
+        core.registry().registerMechanism(plugin, mechanism);
     }
 
     @Override
     public MechanismState stateFor(String mechanismId) {
-        LoadedPlugin owner = registry.ownerOf(mechanismId);
-        if (owner != null && owner != plugin) {
-            throw new LifeloomException("跨机制访问未授权（授权流程随权限里程碑加入）: " + mechanismId);
+        LoadedPlugin owner = core.registry().ownerOf(mechanismId);
+        if (owner == plugin || owner == null) {
+            return core.states().stateFor(mechanismId);
         }
-        return states.stateFor(mechanismId);
+        boolean allowed = core.permissions().request(plugin, "access-mechanism-state",
+                mechanismId, "访问机制“" + mechanismId + "”的状态数据（属于插件 " + owner.descriptor().id() + "）");
+        if (!allowed) {
+            throw new LifeloomException("权限未放行：访问机制状态 " + mechanismId);
+        }
+        return core.states().stateFor(mechanismId);
+    }
+
+    @Override
+    public void invokeHook(String hookId) throws Exception {
+        core.invokeHookFrom(plugin, hookId);
+    }
+
+    @Override
+    public void registerGatekeeper(Gatekeeper gatekeeper) {
+        core.permissions().registerGatekeeper(plugin, gatekeeper);
+    }
+
+    @Override
+    public boolean askUser(String message) {
+        if (plugin.origin() != PluginOrigin.SYSTEM) {
+            throw new LifeloomException("仅系统插件可请求用户提示: " + plugin.descriptor().id());
+        }
+        return core.userPrompt().confirm(message);
     }
 }

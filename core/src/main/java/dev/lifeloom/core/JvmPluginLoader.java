@@ -15,6 +15,8 @@ import java.util.zip.ZipFile;
  * <p>类隔离策略（M0，暂定）：插件类加载器的父加载器为核心自身，
  * 使插件能访问 {@code dev.lifeloom.core} 的 SPI；插件之间互不可见。
  * 更严格的类空间策略随“插件细谈”再定。
+ *
+ * <p>插件来源当前取清单声明（{@code origin}）；正式辨识随签名机制接入后改为签名判定。
  */
 public final class JvmPluginLoader implements PluginLoader {
 
@@ -34,7 +36,7 @@ public final class JvmPluginLoader implements PluginLoader {
                         "主类未实现 Plugin 接口: " + descriptor.mainClass());
             }
             Plugin instance = (Plugin) mainClass.getDeclaredConstructor().newInstance();
-            return new LoadedPlugin(descriptor, classLoader, instance, pluginFile);
+            return new LoadedPlugin(descriptor, classLoader, instance, pluginFile, descriptor.origin());
         } catch (Exception e) {
             classLoader.close();
             if (e instanceof LifeloomException) {

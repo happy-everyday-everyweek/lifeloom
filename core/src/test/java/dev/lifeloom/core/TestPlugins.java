@@ -41,11 +41,17 @@ final class TestPlugins {
         };
     }
 
-    /** 包装为已装载句柄。 */
+    /** 包装为已装载句柄（三方来源）。 */
     static LoadedPlugin loaded(String pluginId, String version, Plugin instance, String sourcePath) {
+        return loaded(pluginId, version, instance, sourcePath, PluginOrigin.THIRD_PARTY);
+    }
+
+    /** 包装为已装载句柄（指定来源）。 */
+    static LoadedPlugin loaded(String pluginId, String version, Plugin instance,
+                               String sourcePath, PluginOrigin origin) {
         PluginDescriptor descriptor = new PluginDescriptor(
-                pluginId, "Test Plugin " + pluginId, version, instance.getClass().getName());
+                pluginId, "Test Plugin " + pluginId, version, instance.getClass().getName(), origin);
         return new LoadedPlugin(descriptor, TestPlugins.class.getClassLoader(),
-                instance, Paths.get(sourcePath));
+                instance, Paths.get(sourcePath), origin);
     }
 }

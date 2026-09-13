@@ -5,15 +5,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Lifeloom 核心（极薄宿主）M1 实现。
+ * Lifeloom 核心（极薄宿主）。
  *
- * <p>当前职责：装载 / 卸载插件、整体替换（热替换，含 drain）、维护注册表与机制状态、
- * 按钩子 ID 调用钩子。权限（M2）、调度与参数存储（M3）随里程碑加入。
+ * <p>当前职责：装载 / 卸载 / 热替换插件、维护注册表与机制状态、按钩子 ID 调用钩子；
+ * 以及 M2 的极薄权限原语：非系统插件的跨边界操作请求经 {@link PermissionBroker}
+ * 转发给已注册闸门（放行决策与用户提示由闸门实现承担，如权限插件），
+ * 并提供由外壳注入的用户提示通道（{@link UserPrompt}）。调度与参数存储（M3）随里程碑加入。
  *
  * <p>执行闸门：所有钩子调用经 {@code enterExecution / exitExecution} 计数；
  * 替换与卸载通过 {@code withDrain} 执行：停止接受新的执行请求，等待执行中的调用结束，
@@ -25,6 +28,8 @@ public final class Core {
     private final Registry registry = new Registry();
     private final MechanismStateStore states = new MechanismStateStore();
     private final SwapManager swapManager = new SwapManager(this);
+    private final PermissionBroker permissions = new PermissionBroker();
+    private volatile UserPrompt userPrompt = UserPrompt.DENY_ALL;
 
     // --- 执行闸门（drain 支持） ---
     private final Object gate = new Object();
@@ -38,6 +43,26 @@ public final class Core {
 
     public Registry registry() {
         return registry;
+    }
+
+    /** 权限闸门转发器（极薄原语；放行决策由已注册闸门承担）。 */
+    public PermissionBroker permissions() {
+        return permissions;
+    }
+
+    /** 用户提示通道（由外壳注入；缺省为全部拒绝）。 */
+    public UserPrompt userPrompt() {
+        return userPrompt;
+    }
+
+    /** 注入用户提示通道（外壳启动时调用）。 */
+    public void setUserPrompt(UserPrompt userPrompt) {
+        this.userPrompt = Objects.requireNonNull(userPrompt, "userPrompt");
+    }
+
+    /** 机制状态存储（包内协作；插件侧请走 PluginContext 或 HookContext）。 */
+    MechanismStateStore states() {
+        return states;
     }
 
     /** 某机制的状态视图（诊断 / 工具用；插件侧请走 PluginContext 或 HookContext）。 */
@@ -85,7 +110,7 @@ public final class Core {
     }
 
     /**
-     * 卸载插件（走 drain 闸门）：onUnload → 清理注册内容 → 释放类加载器。
+     * 卸载插件（走 drain 闸门）：onUnload → 清理注册内容 → 移除其闸门 → 释放类加载器。
      * 机制状态保留（数据不断档）。
      *
      * @return 是否找到并卸载了该插件
@@ -113,7 +138,7 @@ public final class Core {
 
     // --- 调用 ---
 
-    /** 按钩子 ID 调用钩子（经执行闸门；替换进行中会拒绝）。 */
+    /** 按钩子 ID 调用钩子（核心 / 外壳侧发起；经执行闸门；替换进行中会拒绝）。 */
     public void invokeHook(String hookId) throws Exception {
         Registry.HookRef ref = registry.findHook(hookId);
         if (ref == null) {
@@ -121,11 +146,40 @@ public final class Core {
         }
         enterExecution(hookId);
         try {
-            MechanismState state = states.stateFor(ref.mechanism().id());
-            ref.hook().invoke(new HookContext(hookId, ref.mechanism().id(), state));
+            invokeResolved(ref);
         } finally {
             exitExecution();
         }
+    }
+
+    /**
+     * 插件经 {@link PluginContext} 调用钩子（包内协作）。
+     *
+     * <p>调用他方钩子时，非系统插件需经权限闸门放行；调用自身钩子直接执行。
+     */
+    void invokeHookFrom(LoadedPlugin caller, String hookId) throws Exception {
+        Registry.HookRef ref = registry.findHook(hookId);
+        if (ref == null) {
+            throw new LifeloomException("钩子未注册: " + hookId);
+        }
+        enterExecution(hookId);
+        try {
+            if (ref.plugin() != caller) {
+                boolean allowed = permissions.request(caller, "invoke-hook", hookId,
+                        "调用插件“" + ref.plugin().descriptor().id() + "”的钩子 " + hookId);
+                if (!allowed) {
+                    throw new LifeloomException("权限未放行：调用钩子 " + hookId);
+                }
+            }
+            invokeResolved(ref);
+        } finally {
+            exitExecution();
+        }
+    }
+
+    private void invokeResolved(Registry.HookRef ref) throws Exception {
+        MechanismState state = states.stateFor(ref.mechanism().id());
+        ref.hook().invoke(new HookContext(ref.hook().id(), ref.mechanism().id(), state));
     }
 
     /** 返回当前全部已装载插件的 ID 列表（调试用）。 */
@@ -152,9 +206,10 @@ public final class Core {
             throw e;
         }
         try {
-            plugin.instance().onLoad(new DefaultPluginContext(plugin, registry, states));
+            plugin.instance().onLoad(new DefaultPluginContext(plugin, this));
         } catch (Exception e) {
             registry.removePlugin(plugin.descriptor().id());
+            permissions.removeGatekeepersOf(plugin);
             safeUnload(plugin);
             plugin.setState(LoadedPlugin.State.FAILED);
             throw new LifeloomException("插件 onLoad 失败: " + plugin.descriptor().id(), e);
@@ -162,7 +217,7 @@ public final class Core {
         plugin.setState(LoadedPlugin.State.ACTIVE);
     }
 
-    /** onUnload + 清理注册 + 释放类加载器；机制状态保留。 */
+    /** onUnload + 清理注册 + 移除闸门 + 释放类加载器；机制状态保留。 */
     boolean detachPlugin(String pluginId) {
         LoadedPlugin plugin = registry.findPlugin(pluginId);
         if (plugin == null) {
@@ -174,6 +229,7 @@ public final class Core {
             System.err.println("[core] 插件 onUnload 异常: " + pluginId + " -> " + e.getMessage());
         }
         registry.removePlugin(pluginId);
+        permissions.removeGatekeepersOf(plugin);
         safeUnload(plugin);
         plugin.setState(LoadedPlugin.State.UNLOADED);
         return true;

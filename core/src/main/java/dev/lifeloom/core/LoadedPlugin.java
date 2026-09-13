@@ -27,14 +27,16 @@ public final class LoadedPlugin {
     private final ClassLoader classLoader;
     private final Plugin instance;
     private final Path sourcePath;
+    private final PluginOrigin origin;
     private State state = State.LOADING;
 
     public LoadedPlugin(PluginDescriptor descriptor, ClassLoader classLoader,
-                        Plugin instance, Path sourcePath) {
+                        Plugin instance, Path sourcePath, PluginOrigin origin) {
         this.descriptor = Objects.requireNonNull(descriptor, "descriptor");
         this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
         this.instance = Objects.requireNonNull(instance, "instance");
         this.sourcePath = Objects.requireNonNull(sourcePath, "sourcePath");
+        this.origin = Objects.requireNonNull(origin, "origin");
     }
 
     public PluginDescriptor descriptor() {
@@ -52,6 +54,11 @@ public final class LoadedPlugin {
     /** 插件包来源路径（替换与回滚时使用）。 */
     public Path sourcePath() {
         return sourcePath;
+    }
+
+    /** 插件来源（系统 / 三方）。 */
+    public PluginOrigin origin() {
+        return origin;
     }
 
     public State state() {
