@@ -9,7 +9,6 @@ import dev.lifeloom.core.Plugin;
 import dev.lifeloom.core.PluginContext;
 
 import java.util.List;
-import java.util.function.Function;
 
 /**
  * 时间插件（系统插件，运转组）：游戏时钟的持有者。
@@ -46,9 +45,9 @@ public final class TimePlugin implements Plugin {
     public void onLoad(PluginContext context) {
         this.context = context;
         context.registerMechanism(new Mechanism(MECHANISM_ID, "时间", List.of(
-                hook(HOOK_NOW, this::now),
-                hook(HOOK_ADVANCE, this::advance),
-                hook(HOOK_SET_SCALE, this::setScale))));
+                Hook.of(HOOK_NOW, this::now),
+                Hook.of(HOOK_ADVANCE, this::advance),
+                Hook.of(HOOK_SET_SCALE, this::setScale))));
         System.out.println("[time] 时间插件已装载（无动作则静止；由动作驱动流逝）");
     }
 
@@ -140,19 +139,5 @@ public final class TimePlugin implements Plugin {
 
     private static String format(long now, int scale) {
         return "now=" + now + ";scale=" + scale;
-    }
-
-    private static Hook hook(String id, Function<HookContext, String> body) {
-        return new Hook() {
-            @Override
-            public String id() {
-                return id;
-            }
-
-            @Override
-            public void invoke(HookContext hookContext) {
-                hookContext.reply(body.apply(hookContext));
-            }
-        };
     }
 }

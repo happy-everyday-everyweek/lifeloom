@@ -11,7 +11,6 @@ import dev.lifeloom.core.PluginContext;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 
 /**
  * 钩子管理插件（系统插件，运转组）：钩子的管理者。
@@ -56,11 +55,11 @@ public final class HooksPlugin implements Plugin {
     public void onLoad(PluginContext context) {
         state = context.stateFor(MECHANISM_ID);
         context.registerMechanism(new Mechanism(MECHANISM_ID, "钩子管理", List.of(
-                hook(HOOK_DISABLE, this::disable),
-                hook(HOOK_ENABLE, this::enable),
-                hook(HOOK_REPLACE, this::replace),
-                hook(HOOK_RESTORE, this::restore),
-                hook(HOOK_STATUS, this::status))));
+                Hook.of(HOOK_DISABLE, this::disable),
+                Hook.of(HOOK_ENABLE, this::enable),
+                Hook.of(HOOK_REPLACE, this::replace),
+                Hook.of(HOOK_RESTORE, this::restore),
+                Hook.of(HOOK_STATUS, this::status))));
         context.registerHookResolver(this::resolve);
         System.out.println("[hooks] 钩子管理插件已装载：禁用 / 替代登记经解析器生效");
     }
@@ -83,24 +82,24 @@ public final class HooksPlugin implements Plugin {
     }
 
     /** 登记禁用。 */
-    private String disable(HookContext context) {
-        String hookId = requireHookId(context.input());
+    private String disable(HookContext hookContext) {
+        String hookId = requireHookId(hookContext.input());
         guardOwn(hookId);
         state.put(PREFIX_DISABLED + hookId, "true");
         return "disabled=" + hookId;
     }
 
     /** 解除禁用。 */
-    private String enable(HookContext context) {
-        String hookId = requireHookId(context.input());
+    private String enable(HookContext hookContext) {
+        String hookId = requireHookId(hookContext.input());
         guardOwn(hookId);
         state.remove(PREFIX_DISABLED + hookId);
         return "enabled=" + hookId;
     }
 
     /** 登记替代（源=目标）。 */
-    private String replace(HookContext context) {
-        String[] pair = parseReplace(context.input());
+    private String replace(HookContext hookContext) {
+        String[] pair = parseReplace(hookContext.input());
         guardOwn(pair[0]);
         guardOwn(pair[1]);
         state.put(PREFIX_REDIRECT + pair[0], pair[1]);
@@ -108,15 +107,15 @@ public final class HooksPlugin implements Plugin {
     }
 
     /** 解除替代。 */
-    private String restore(HookContext context) {
-        String hookId = requireHookId(context.input());
+    private String restore(HookContext hookContext) {
+        String hookId = requireHookId(hookContext.input());
         guardOwn(hookId);
         state.remove(PREFIX_REDIRECT + hookId);
         return "restored=" + hookId;
     }
 
     /** 查看全部登记（按 ID 排序，输出稳定）。 */
-    private String status(HookContext context) {
+    private String status(HookContext hookContext) {
         List<String> disabled = new ArrayList<>();
         List<String> replaced = new ArrayList<>();
         for (String key : state.keys()) {
@@ -158,19 +157,5 @@ public final class HooksPlugin implements Plugin {
         if (hookId.equals(MECHANISM_ID) || hookId.startsWith(MECHANISM_ID + ".")) {
             throw new LifeloomException("不能管理钩子管理自身的钩子: " + hookId);
         }
-    }
-
-    private static Hook hook(String id, Function<HookContext, String> body) {
-        return new Hook() {
-            @Override
-            public String id() {
-                return id;
-            }
-
-            @Override
-            public void invoke(HookContext hookContext) {
-                hookContext.reply(body.apply(hookContext));
-            }
-        };
     }
 }
